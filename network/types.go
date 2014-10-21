@@ -45,6 +45,8 @@ type NetworkState struct {
 	VethHost string `json:"veth_host,omitempty"`
 	// The name of the veth interface created inside the container for the child.
 	VethChild string `json:"veth_child,omitempty"`
+	// The name of the Open vSwitch port on the Host.
+	OvsPort string `json:"ovs_port,omitempty"`
 	// Net namespace path.
 	NsPath string `json:"ns_path,omitempty"`
 }
