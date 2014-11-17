@@ -4,9 +4,10 @@ package network
 
 import (
 	"fmt"
-	"os/exec"
+	"reflect"
 
 	"github.com/docker/libcontainer/utils"
+	"github.com/socketplane/libovsdb"
 )
 
 // OVS is a network strategy that uses a bridge and creates
@@ -91,19 +92,125 @@ func (v *Ovs) Initialize(config *Network, networkState *NetworkState) error {
 // createOvsInternalPort will generate a random name for the
 // the port and ensure that it has been created
 func createOvsInternalPort(prefix string, bridge string) (name1 string, err error) {
-	for i := 0; i < 10; i++ {
-		if name1, err = utils.GenerateRandomName(prefix, 7); err != nil {
-			return
-		}
-
-		// ToDo: Replace with a proper OVSDB-based call
-        cmd := exec.Command("ovs-vsctl", "add-port", bridge, name1, "--", "set", "Interface", name1, "type=internal")
-		if err = cmd.Run(); err != nil {
-			return name1, fmt.Errorf("create ovs port %s on %s failed with %s", name1, bridge, err)
-		}
-
-		break
+	if name1, err = utils.GenerateRandomName(prefix, 7); err != nil {
+		return
 	}
 
+	ovs, err := ovs_connect()
+	if err == nil {
+		addInternalPort(ovs, bridge, name1)
+	}
 	return
+}
+
+var update chan *libovsdb.TableUpdates
+var cache map[string]map[string]libovsdb.Row
+
+func addInternalPort(ovs *libovsdb.OvsdbClient, bridgeName string, portName string) {
+	namedPortUuid := "port"
+	namedIntfUuid := "intf"
+
+	// intf row to insert
+	intf := make(map[string]interface{})
+	intf["name"] = portName
+	intf["type"] = `internal`
+
+	insertIntfOp := libovsdb.Operation{
+		Op:       "insert",
+		Table:    "Interface",
+		Row:      intf,
+		UUIDName: namedIntfUuid,
+	}
+
+	// port row to insert
+	port := make(map[string]interface{})
+	port["name"] = portName
+	port["interfaces"] = libovsdb.UUID{namedIntfUuid}
+
+	insertPortOp := libovsdb.Operation{
+		Op:       "insert",
+		Table:    "Port",
+		Row:      port,
+		UUIDName: namedPortUuid,
+	}
+
+	// Inserting a row in Port table requires mutating the bridge table.
+	mutateUuid := []libovsdb.UUID{libovsdb.UUID{namedPortUuid}}
+	mutateSet, _ := libovsdb.NewOvsSet(mutateUuid)
+	mutation := libovsdb.NewMutation("ports", "insert", mutateSet)
+	condition := libovsdb.NewCondition("name", "==", bridgeName)
+
+	// simple mutate operation
+	mutateOp := libovsdb.Operation{
+		Op:        "mutate",
+		Table:     "Bridge",
+		Mutations: []interface{}{mutation},
+		Where:     []interface{}{condition},
+	}
+
+	operations := []libovsdb.Operation{insertIntfOp, insertPortOp, mutateOp}
+	reply, _ := ovs.Transact("Open_vSwitch", operations...)
+	if len(reply) < len(operations) {
+		fmt.Println("Number of Replies should be atleast equal to number of Operations")
+	}
+	ok := true
+	for i, o := range reply {
+		if o.Error != "" && i < len(operations) {
+			fmt.Println("Transaction Failed due to an error :", o.Error, " details:", o.Details, " in ", operations[i])
+			ok = false
+		} else if o.Error != "" {
+			fmt.Println("Transaction Failed due to an error :", o.Error)
+			ok = false
+		}
+	}
+	if ok {
+		fmt.Println("Port Addition Successful : ", reply[1].UUID.GoUuid)
+	}
+}
+
+func populateCache(updates libovsdb.TableUpdates) {
+	for table, tableUpdate := range updates.Updates {
+		if _, ok := cache[table]; !ok {
+			cache[table] = make(map[string]libovsdb.Row)
+
+		}
+		for uuid, row := range tableUpdate.Rows {
+			empty := libovsdb.Row{}
+			if !reflect.DeepEqual(row.New, empty) {
+				cache[table][uuid] = row.New
+			} else {
+				delete(cache[table], uuid)
+			}
+		}
+	}
+}
+
+func ovs_connect() (*libovsdb.OvsdbClient, error) {
+	update = make(chan *libovsdb.TableUpdates)
+	cache = make(map[string]map[string]libovsdb.Row)
+
+	// By default libovsdb connects to 127.0.0.0:6400.
+	ovs, err := libovsdb.Connect("", 0)
+	if err != nil {
+		return nil, err
+	}
+	var notifier Notifier
+	ovs.Register(notifier)
+
+	initial, _ := ovs.MonitorAll("Open_vSwitch", "")
+	populateCache(*initial)
+	return ovs, nil
+}
+
+type Notifier struct {
+}
+
+func (n Notifier) Update(context interface{}, tableUpdates libovsdb.TableUpdates) {
+	populateCache(tableUpdates)
+}
+func (n Notifier) Locked([]interface{}) {
+}
+func (n Notifier) Stolen([]interface{}) {
+}
+func (n Notifier) Echo([]interface{}) {
 }
