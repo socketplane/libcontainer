@@ -5,6 +5,7 @@ package network
 import (
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/docker/libcontainer/utils"
 	"github.com/socketplane/libovsdb"
@@ -31,6 +32,8 @@ func (v *Ovs) Create(n *Network, nspid int, networkState *NetworkState) error {
 	if err != nil {
 		return err
 	}
+	// Add a dummy sleep to make sure the interface is seen by the subsequent calls.
+	time.Sleep(time.Second * 1)
 	if err := SetMtu(name, n.Mtu); err != nil {
 		return err
 	}
