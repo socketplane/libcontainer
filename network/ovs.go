@@ -56,37 +56,40 @@ func (v *Ovs) Initialize(config *Network, networkState *NetworkState) error {
 	if err := InterfaceDown(ovsPort); err != nil {
 		return fmt.Errorf("interface down %s %s", ovsPort, err)
 	}
-	if err := ChangeInterfaceName(ovsPort, defaultDevice); err != nil {
-		return fmt.Errorf("change %s to %s %s", ovsPort, defaultDevice, err)
+	// TODO : Find a way to change the interface name to defaultDevice (eth0).
+	// Currently using the Randomly created OVS port as is.
+	// refer to veth.go where one end of the veth pair is renamed to eth0
+	if err := ChangeInterfaceName(ovsPort, ovsPort); err != nil {
+		return fmt.Errorf("change %s to %s %s", ovsPort, ovsPort, err)
 	}
 	if config.MacAddress != "" {
-		if err := SetInterfaceMac(defaultDevice, config.MacAddress); err != nil {
-			return fmt.Errorf("set %s mac %s", defaultDevice, err)
+		if err := SetInterfaceMac(ovsPort, config.MacAddress); err != nil {
+			return fmt.Errorf("set %s mac %s", ovsPort, err)
 		}
 	}
-	if err := SetInterfaceIp(defaultDevice, config.Address); err != nil {
-		return fmt.Errorf("set %s ip %s", defaultDevice, err)
+	if err := SetInterfaceIp(ovsPort, config.Address); err != nil {
+		return fmt.Errorf("set %s ip %s", ovsPort, err)
 	}
 	if config.IPv6Address != "" {
-		if err := SetInterfaceIp(defaultDevice, config.IPv6Address); err != nil {
-			return fmt.Errorf("set %s ipv6 %s", defaultDevice, err)
+		if err := SetInterfaceIp(ovsPort, config.IPv6Address); err != nil {
+			return fmt.Errorf("set %s ipv6 %s", ovsPort, err)
 		}
 	}
 
-	if err := SetMtu(defaultDevice, config.Mtu); err != nil {
-		return fmt.Errorf("set %s mtu to %d %s", defaultDevice, config.Mtu, err)
+	if err := SetMtu(ovsPort, config.Mtu); err != nil {
+		return fmt.Errorf("set %s mtu to %d %s", ovsPort, config.Mtu, err)
 	}
-	if err := InterfaceUp(defaultDevice); err != nil {
-		return fmt.Errorf("%s up %s", defaultDevice, err)
+	if err := InterfaceUp(ovsPort); err != nil {
+		return fmt.Errorf("%s up %s", ovsPort, err)
 	}
 	if config.Gateway != "" {
-		if err := SetDefaultGateway(config.Gateway, defaultDevice); err != nil {
-			return fmt.Errorf("set gateway to %s on device %s failed with %s", config.Gateway, defaultDevice, err)
+		if err := SetDefaultGateway(config.Gateway, ovsPort); err != nil {
+			return fmt.Errorf("set gateway to %s on device %s failed with %s", config.Gateway, ovsPort, err)
 		}
 	}
 	if config.IPv6Gateway != "" {
-		if err := SetDefaultGateway(config.IPv6Gateway, defaultDevice); err != nil {
-			return fmt.Errorf("set gateway for ipv6 to %s on device %s failed with %s", config.IPv6Gateway, defaultDevice, err)
+		if err := SetDefaultGateway(config.IPv6Gateway, ovsPort); err != nil {
+			return fmt.Errorf("set gateway for ipv6 to %s on device %s failed with %s", config.IPv6Gateway, ovsPort, err)
 		}
 	}
 	return nil
